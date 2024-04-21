@@ -1,10 +1,7 @@
 import javax.swing.*;
 import javax.xml.crypto.Data;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.WindowEvent;
-import java.awt.event.WindowListener;
+import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -41,12 +38,15 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
     public String binarizationMethod;
     public String localizationMethod;
     public ImagePlus binaryImage;
+    public String rawFramesPath;
+    public String procFramesPath;
     public ArrayList<double[][]> coords;
 
     public MainFrame() {
         this.setSize(600, 300);
         this.setLayout(new GridBagLayout());
         this.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        this.addWindowListener(this);
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
@@ -124,6 +124,11 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         gbc.weightx = 1.0;
         this.add(progressBar, gbc);
 
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int x = (screenSize.width - this.getWidth()) / 2;
+        int y = (screenSize.height - this.getHeight()) / 2;
+        this.setLocation(x, y);
+
         this.setVisible(true);
     }
 
@@ -190,12 +195,13 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                     @Override
                     protected void done() {
                         // Enable UI components
-                        JOptionPane.showMessageDialog(MainFrame.this, "Done");
                         setUIEnabled(true);
 
                         // Hide processing label and progress bar
                         processingLabel.setVisible(false);
                         progressBar.setVisible(false);
+
+                        JOptionPane.showMessageDialog(MainFrame.this, "Done");
                     }
                 };
                 worker.execute();
@@ -222,21 +228,32 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         DatabaseHandler.addVideo(filePath, vidWidth, vidHeight, format);
 
         //Splitting videofile into frames
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+        LocalDateTime now = LocalDateTime.now();
+        String processTime = dtf.format(now);
+        rawFramesPath = "raw\\" + processTime;
+        new File(rawFramesPath).mkdirs();
+
+        //int frameRate = 1000;
+        //long prev = System.currentTimeMillis();
+
         Mat image = new Mat();
         int i = 0;
         while (capture.isOpened()) {
+            //long timeElapsed = System.currentTimeMillis() - prev;
             boolean ret = capture.read(image);
             if (ret) {
-                String rawFramePath = "raw\\Frame" + i + ".jpg";
+                String rawFramePath = rawFramesPath + "\\Frame" + i + ".jpg";
 
                 //adding raw frames info to database
                 DatabaseHandler.addRawFrame(rawFramePath, videoPath);
 
                 Imgcodecs.imwrite(rawFramePath, image);
+                i++;
 
             } else
                 break;
-            i++;
+
         }
 
 
@@ -244,8 +261,11 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         coords = new ArrayList<>();
         int imSizeX = 0, imSizeY = 0;
 
+        procFramesPath = "processed\\" + processTime;
+        new File(procFramesPath).mkdirs();
+
         while(i > 0) {
-            String rawFramePath = "raw\\Frame" + (i-1) + ".jpg";
+            String rawFramePath = rawFramesPath + "\\Frame" + (i-1) + ".jpg";
             ImagePlus imp = IJ.openImage(rawFramePath);
 
             imSizeX = imp.getWidth();
@@ -268,7 +288,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
             String macro = "run(\"Gaussian Blur...\", \"sigma=2\");" +
                     "run(\"Find Maxima...\", \"output=[Single Points]\");";
             IJ.runMacro(macro);
-            String procFramePath = "processed\\Frame" + (i-1) + ".png";
+            String procFramePath = procFramesPath + "\\Frame" + (i-1) + ".png";
             IJ.saveAs("png",procFramePath);
             DatabaseHandler.addProcessedFrame(procFramePath, rawFramePath);
 
@@ -320,13 +340,9 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         }
 
         finalImage.show();
-        //System.out.println(coords.get(1)[0][0]);
 
         FileSaver fs = new FileSaver(finalImage);
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-        LocalDateTime now = LocalDateTime.now();
-        //System.out.println(dtf.format(now));
-        String finalImagePath = "final_images\\FinalImage" + dtf.format(now) + ".png";
+        String finalImagePath = "final_images\\FinalImage" + processTime + ".png";
         fs.saveAsPng(finalImagePath);
 
         DatabaseHandler.addFinalImage(videoPath, 1000, finalImagePath, 3);

@@ -8,6 +8,9 @@ import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.videoio.VideoCapture;
 
 import javax.swing.*;
+import java.io.File;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 
 
@@ -22,7 +25,6 @@ public class main {
         DatabaseHandler.clearTable("molecules");
         DatabaseHandler.clearTable("final_images");
         MainFrame mainFrame = new MainFrame();
-
         //ImageJ ij = new ImageJ();
     }
 }
