@@ -49,16 +49,17 @@ public class DatabaseHandler {
         }
     }
 
-    public static void addProcessedFrame(String procFramePath, String rawFramePath) {
+    public static void addProcessedFrame(String procFramePath, String rawFramePath, String binMethodName) {
         // Получаем айди сырого кадра по его пути
         int rawFrameID = getRawFrameID(rawFramePath);
+        int binMethodID = getBinMethodID(binMethodName);
 
         // Запрос на добавление записи в таблицу frames_processed с указанием внешнего ключа frames_raw_id
         String query = "INSERT INTO frames_processed (path, frames_raw_id, binarization_method_id) VALUES (?, ?, ?)";
         try (PreparedStatement statement = connection.prepareStatement(query)) {
             statement.setString(1, procFramePath);
             statement.setInt(2, rawFrameID);
-            statement.setInt(3, 5);
+            statement.setInt(3, binMethodID);
             statement.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
@@ -81,8 +82,9 @@ public class DatabaseHandler {
         }
     }
 
-    public static void addFinalImage(String videoPath, int freq, String finalImagePath, int locMethodId) {
+    public static void addFinalImage(String videoPath, int freq, String finalImagePath, String locMethodName) {
         int videoId = getVideoID(videoPath);
+        int locMethodId = getLocMethodID(locMethodName);
 
         String query = "INSERT INTO final_images (video_id, frequency, path, localization_method_id) VALUES (?, ?, ?, ?)";
         try (PreparedStatement statement = connection.prepareStatement(query)) {
@@ -145,6 +147,40 @@ public class DatabaseHandler {
         }
 
         return procFrameID;
+    }
+
+    public static int getBinMethodID(String binMethodName) {
+        int binMethodID = -1;
+
+        String query = "SELECT binarization_method_id FROM binarization_methods WHERE binarization_method_name = ?";
+        try (PreparedStatement statement = connection.prepareStatement(query)) {
+            statement.setString(1, binMethodName);
+            ResultSet resultSet = statement.executeQuery();
+            if (resultSet.next()) {
+                binMethodID = resultSet.getInt("binarization_method_id");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return binMethodID;
+    }
+
+    public static int getLocMethodID(String locMethodName) {
+        int locMethodID = -1;
+
+        String query = "SELECT localization_method_id FROM localization_methods WHERE localization_method_name = ?";
+        try (PreparedStatement statement = connection.prepareStatement(query)) {
+            statement.setString(1, locMethodName);
+            ResultSet resultSet = statement.executeQuery();
+            if (resultSet.next()) {
+                locMethodID = resultSet.getInt("localization_method_id");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return locMethodID;
     }
 
     public static void clearTable(String tableName) {

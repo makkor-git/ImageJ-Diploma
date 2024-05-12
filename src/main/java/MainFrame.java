@@ -1,22 +1,20 @@
 import javax.swing.*;
-import javax.xml.crypto.Data;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.sql.SQLOutput;
+import java.util.*;
 
 import ij.IJ;
 import ij.ImagePlus;
-import ij.gui.NewImage;
+import ij.gui.*;
 import ij.io.FileSaver;
+import ij.measure.Measurements;
 import ij.measure.ResultsTable;
+import ij.plugin.filter.ParticleAnalyzer;
 import ij.process.ImageConverter;
 import ij.process.ImageProcessor;
-import org.apache.commons.io.FileUtils;
 
-import ij.ImageJ ;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.videoio.VideoCapture;
@@ -40,6 +38,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
     public ImagePlus binaryImage;
     public String rawFramesPath;
     public String procFramesPath;
+    public HashMap<Integer, String> binarizationMethods;
     public ArrayList<double[][]> coords;
 
     public MainFrame() {
@@ -221,13 +220,16 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         VideoCapture capture = new VideoCapture(videoPath);
         int vidWidth = (int) capture.get(Videoio.CAP_PROP_FRAME_WIDTH);
         int vidHeight = (int) capture.get(Videoio.CAP_PROP_FRAME_HEIGHT);
+        int frameRate = (int) capture.get(Videoio.CAP_PROP_FPS);
         String format = videoPath.substring(videoPath.length() - 3);
         System.out.println("Video height: " + vidHeight);
         System.out.println("Video width: " + vidWidth);
+        System.out.println("Frame rate: " + frameRate);
         //adding video info to database
         DatabaseHandler.addVideo(filePath, vidWidth, vidHeight, format);
 
         //Splitting videofile into frames
+        System.out.println("Splitting videofile into frames...");
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
         LocalDateTime now = LocalDateTime.now();
         String processTime = dtf.format(now);
@@ -257,7 +259,10 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
         }
 
 
+        System.out.println("Splitting into frames complete.");
+
         //Processing images
+        System.out.println("Processing frames...");
         coords = new ArrayList<>();
         int imSizeX = 0, imSizeY = 0;
 
@@ -284,22 +289,159 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                 binaryImage.show();
             }
 
-            //ImageJ Macro Language
-            String macro = "run(\"Gaussian Blur...\", \"sigma=2\");" +
-                    "run(\"Find Maxima...\", \"output=[Single Points]\");";
-            IJ.runMacro(macro);
-            String procFramePath = procFramesPath + "\\Frame" + (i-1) + ".png";
-            IJ.saveAs("png",procFramePath);
-            DatabaseHandler.addProcessedFrame(procFramePath, rawFramePath);
+            String procFramePath = "";
+            ResultsTable rt = new ResultsTable();
+            double[] xCoords = new double[0];
+            double[] yCoords = new double[0];
+            if (localizationMethod == "Default") {
+                //ImageJ Macro Language
+                String macro = "run(\"Gaussian Blur...\", \"sigma=2\");" +
+                        "run(\"Find Maxima...\", \"output=[Single Points]\");";
+                IJ.runMacro(macro);
+                procFramePath = procFramesPath + "\\Frame" + (i - 1) + ".png";
+                IJ.saveAs("png", procFramePath);
 
-            macro = "run(\"Find Maxima...\", \"output=List\");";
-            IJ.runMacro(macro);
+                DatabaseHandler.addProcessedFrame(procFramePath, rawFramePath, binarizationMethod);
+
+                macro = "run(\"Find Maxima...\", \"output=List\");";
+                IJ.runMacro(macro);
+
+                rt = ResultsTable.getResultsTable();
+                xCoords = rt.getColumnAsDoubles(0);
+                yCoords = rt.getColumnAsDoubles(1);
+            } else if (localizationMethod == "Centroids") {
+                //IJ.setAutoThreshold(imp, "Default");
+                IJ.setThreshold(imp, 200.0, 255.0);
+                /*new ImageConverter(imp).convertToGray8();
+                binaryImage = IJ.createImage("Binary Image", "8-bit", imp.getWidth(), imp.getHeight(), 1);
+                IJ.run(imp, "Convert to Mask", "");
+                binaryImage.setProcessor(null, imp.getProcessor().duplicate());
+                binaryImage.show();*/
+
+                // Создаем ROI, соответствующую области, содержащей одиночные молекулы
+                Roi roi = new Roi(0, 0, imp.getWidth(), imp.getHeight());
+                imp.setRoi(roi);
+
+                // Вычисляем центроид для каждой молекулы в ROI
+                int measurements = Measurements.CENTROID;
+                ParticleAnalyzer pa = new ParticleAnalyzer(ParticleAnalyzer.SHOW_OUTLINES, measurements, rt, 0, 60, 0, 1);
+                pa.setHideOutputImage(true);
+                pa.analyze(imp);
+
+                procFramePath = procFramesPath + "\\Frame" + (i - 1) + ".png";
+                IJ.saveAs("png", procFramePath);
+
+                DatabaseHandler.addProcessedFrame(procFramePath, rawFramePath, binarizationMethod);
+
+                xCoords = rt.getColumnAsDoubles(ResultsTable.X_CENTROID);
+                yCoords = rt.getColumnAsDoubles(ResultsTable.Y_CENTROID);
+
+
+            } else if (localizationMethod == "Gaussian") {
+                /*
+                IJ.setAutoThreshold(imp, "Otsu dark");
+                new ImageConverter(imp).convertToGray8();
+                binaryImage = IJ.createImage("Binary Image", "8-bit", imp.getWidth(), imp.getHeight(), 1);
+                IJ.run(imp, "Convert to Mask", "");
+                binaryImage.setProcessor(null, imp.getProcessor().duplicate());
+                binaryImage.show();*/
+
+                ImageProcessor ip = imp.getProcessor();
+                int width = ip.getWidth();
+                int height = ip.getHeight();
+                double[][] pixels = new double[width][height];
+
+                for (int x = 0; x < width; x++) {
+                    for (int y = 0; y < height; y++) {
+                        pixels[x][y] = ip.getPixelValue(x, y);
+                    }
+                }
+
+                double threshold = 150; // Порог для локализации
+                double sigma = 2.0; // Параметр гауссиана
+                double minDistance = 25.0; // Минимальное расстояние между молекулами
+                //ResultsTable rt = new ResultsTable();
+                Overlay overlay = new Overlay();
+                Overlay overlayWithNumbers = new Overlay();
+                HashSet<Integer> checkedMolecules = new HashSet<>(); // Хэшсет для отслеживания номеров молекул
+
+                int counter = 1; // Счётчик для нумерации молекул
+
+                for (int x = 0; x < width; x++) {
+                    for (int y = 0; y < height; y++) {
+                        if (pixels[x][y] > threshold) {
+                            double totalWeight = 0.0;
+                            double sumX = 0.0;
+                            double sumY = 0.0;
+
+                            for (int k = -2; k <= 2; k++) {
+                                for (int j = -2; j <= 2; j++) {
+                                    int newX = x + k;
+                                    int newY = y + j;
+
+                                    if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
+                                        double intensity = pixels[newX][newY];
+                                        double weight = intensity * Math.exp(-((k * k + j * j) / (2 * sigma * sigma)));
+
+                                        sumX += newX * weight;
+                                        sumY += newY * weight;
+                                        totalWeight += weight;
+                                    }
+                                }
+                            }
+
+                            double centerX = sumX / totalWeight;
+                            double centerY = sumY / totalWeight;
+
+                            if (!checkedMolecules.contains(counter) && !isCluster(rt, centerX, centerY, minDistance)) {
+                                OvalRoi ovalRoi = new OvalRoi(centerX - 1, centerY - 1, 6, 6);
+                                TextRoi textRoi = new TextRoi(centerX, centerY, String.valueOf(counter));
+                                textRoi.setStrokeColor(new Color(0, 255, 0)); // Зеленый цвет для текстовой метки
+                                overlayWithNumbers.add(textRoi);
+
+                                counter++;
+
+                                // Добавляем текущую молекулу в таблицу результатов
+                                rt.incrementCounter();
+                                rt.addValue("X", centerX);
+                                rt.addValue("Y", centerY);
+                                rt.addValue("Molecule Number", counter - 1);
+                                checkedMolecules.add(counter - 1);
+                            }
+                        }
+                    }
+                }
+                for (int k = 0; k < rt.getCounter(); k++) {
+                    int moleculeNumber = (int) rt.getValue("Molecule Number", k);
+                    if (moleculeNumber == 0) {
+                        rt.deleteRow(k);
+                        k--; // Уменьшаем индекс, чтобы не пропустить следующую строку после удаления
+                    }
+                }
+
+                imp.setOverlay(overlay);
+                imp.show();
+
+                ImagePlus overlayWithNumbersImage = NewImage.createRGBImage("Localized Molecules with Numbers", width, height, 1, NewImage.FILL_BLACK);
+                overlayWithNumbersImage.setOverlay(overlayWithNumbers);
+                overlayWithNumbersImage.show();
+
+                procFramePath = procFramesPath + "\\Frame" + (i - 1) + ".png";
+                IJ.saveAs("png", procFramePath);
+
+                DatabaseHandler.addProcessedFrame(procFramePath, rawFramePath, binarizationMethod);
+
+                xCoords = rt.getColumnAsDoubles(0);
+                yCoords = rt.getColumnAsDoubles(1);
+
+                overlayWithNumbersImage.hide();
+            }
 
             //Molecules coordinates
-            ResultsTable rt = ResultsTable.getResultsTable();
+            //rt = ResultsTable.getResultsTable();
             int numRows = rt.size();
-            double[] xCoords = rt.getColumnAsDoubles(0);
-            double[] yCoords = rt.getColumnAsDoubles(1);
+            //double[] xCoords = rt.getColumnAsDoubles(0);
+            //double[] yCoords = rt.getColumnAsDoubles(1);
 
             if (xCoords != null) {
                 for (int n = 0; n < xCoords.length; n++) {
@@ -322,9 +464,10 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
             i--;
         }
 
-
+        System.out.println("Processing complete.");
 
         //Final result
+        System.out.println("Creating final image...");
         ImagePlus finalImage = NewImage.createImage("Final result",
                 imSizeX, imSizeY,
                 1,
@@ -341,14 +484,39 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
 
         finalImage.show();
 
+
+
         FileSaver fs = new FileSaver(finalImage);
         String finalImagePath = "final_images\\FinalImage" + processTime + ".png";
         fs.saveAsPng(finalImagePath);
 
-        DatabaseHandler.addFinalImage(videoPath, 1000, finalImagePath, 3);
+        System.out.println("Final image created: " + finalImagePath);
+
+        DatabaseHandler.addFinalImage(videoPath, frameRate, finalImagePath, localizationMethod);
 
 
 
+    }
+
+    private boolean isCluster(ResultsTable centroidTable, double x, double y, double minDistance) {
+        if (centroidTable != null) {
+            int count = centroidTable.getCounter();
+            for (int i = 0; i < count; i++) {
+                double xCoord = centroidTable.getValueAsDouble(0, i);
+                double yCoord = centroidTable.getValueAsDouble(1, i);
+                double distance = Math.sqrt(Math.pow(x - xCoord, 2) + Math.pow(y - yCoord, 2));
+                if (distance < minDistance) {
+                    return true; // Если найдено скопление, возвращаем true
+                }
+            }
+        }
+
+        // Если не найдено скопление, добавляем текущую молекулу в таблицу координат
+        centroidTable.incrementCounter();
+        centroidTable.addValue("X", x);
+        centroidTable.addValue("Y", y);
+
+        return false; // Возвращаем false для одиночной молекулы
     }
 
     private void setUIEnabled(boolean enabled) {
