@@ -2,7 +2,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
-import java.sql.SQLOutput;
 import java.util.*;
 
 import ij.IJ;
@@ -33,13 +32,12 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
     JProgressBar progressBar;
 
     public String filePath;
-    public String binarizationMethod;
-    public String localizationMethod;
     public ImagePlus binaryImage;
     public String rawFramesPath;
     public String procFramesPath;
-    public HashMap<Integer, String> binarizationMethods;
     public ArrayList<double[][]> coords;
+    public String finalImagePath;
+
 
     public MainFrame() {
         this.setSize(600, 300);
@@ -133,39 +131,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
 
     @Override
     public void actionPerformed(ActionEvent e) {
-       /* if(e.getSource() == launchImageJButton) {
-            String videoPath = new String("C:\\Users\\makko\\Downloads\\videoplayback.mp4");
-            VideoCapture capture = new VideoCapture(videoPath);
-            Mat image = new Mat();
-            int i = 0;
-            while (capture.isOpened()) {
-                boolean ret = capture.read(image);
-                if (ret) {
-                    Imgcodecs.imwrite("OutputIJ\\Frame" + i + ".png", image);
-                }
-                else
-                    break;
-                i++;
-            }
-        }*/
-
         if(e.getSource() == chooseFileButton) {
-//            if (!new File("raw").mkdir() && !new File("raw").exists())
-//            {
-//                try {
-//                    throw new IOException();
-//                } catch (IOException ex) {
-//                    throw new RuntimeException(ex);
-//                }
-//            }
-//
-//            try {
-//                FileUtils.cleanDirectory(new File("raw"));
-//            } catch (IOException ex) {
-//                throw new RuntimeException(ex);
-//            }
-
-
             //Choosing a videofile
             JFileChooser fileChooser = new JFileChooser();
             int resp = fileChooser.showOpenDialog(null);
@@ -200,7 +166,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                         processingLabel.setVisible(false);
                         progressBar.setVisible(false);
 
-                        JOptionPane.showMessageDialog(MainFrame.this, "Done");
+                        JOptionPane.showMessageDialog(MainFrame.this, "Done: final image saved at " + finalImagePath);
                     }
                 };
                 worker.execute();
@@ -230,19 +196,16 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
 
         //Splitting videofile into frames
         System.out.println("Splitting videofile into frames...");
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy.MM.dd-HH.mm.ss");
         LocalDateTime now = LocalDateTime.now();
         String processTime = dtf.format(now);
         rawFramesPath = "raw\\" + processTime;
         new File(rawFramesPath).mkdirs();
 
-        //int frameRate = 1000;
-        //long prev = System.currentTimeMillis();
 
         Mat image = new Mat();
         int i = 0;
         while (capture.isOpened()) {
-            //long timeElapsed = System.currentTimeMillis() - prev;
             boolean ret = capture.read(image);
             if (ret) {
                 String rawFramePath = rawFramesPath + "\\Frame" + i + ".jpg";
@@ -310,19 +273,11 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                 xCoords = rt.getColumnAsDoubles(0);
                 yCoords = rt.getColumnAsDoubles(1);
             } else if (localizationMethod == "Centroids") {
-                //IJ.setAutoThreshold(imp, "Default");
                 IJ.setThreshold(imp, 200.0, 255.0);
-                /*new ImageConverter(imp).convertToGray8();
-                binaryImage = IJ.createImage("Binary Image", "8-bit", imp.getWidth(), imp.getHeight(), 1);
-                IJ.run(imp, "Convert to Mask", "");
-                binaryImage.setProcessor(null, imp.getProcessor().duplicate());
-                binaryImage.show();*/
 
-                // Создаем ROI, соответствующую области, содержащей одиночные молекулы
                 Roi roi = new Roi(0, 0, imp.getWidth(), imp.getHeight());
                 imp.setRoi(roi);
 
-                // Вычисляем центроид для каждой молекулы в ROI
                 int measurements = Measurements.CENTROID;
                 ParticleAnalyzer pa = new ParticleAnalyzer(ParticleAnalyzer.SHOW_OUTLINES, measurements, rt, 0, 60, 0, 1);
                 pa.setHideOutputImage(true);
@@ -338,14 +293,6 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
 
 
             } else if (localizationMethod == "Gaussian") {
-                /*
-                IJ.setAutoThreshold(imp, "Otsu dark");
-                new ImageConverter(imp).convertToGray8();
-                binaryImage = IJ.createImage("Binary Image", "8-bit", imp.getWidth(), imp.getHeight(), 1);
-                IJ.run(imp, "Convert to Mask", "");
-                binaryImage.setProcessor(null, imp.getProcessor().duplicate());
-                binaryImage.show();*/
-
                 ImageProcessor ip = imp.getProcessor();
                 int width = ip.getWidth();
                 int height = ip.getHeight();
@@ -357,15 +304,14 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                     }
                 }
 
-                double threshold = 150; // Порог для локализации
-                double sigma = 2.0; // Параметр гауссиана
-                double minDistance = 25.0; // Минимальное расстояние между молекулами
-                //ResultsTable rt = new ResultsTable();
+                double threshold = 150;
+                double sigma = 2.0;
+                double minDistance = 25.0;
                 Overlay overlay = new Overlay();
                 Overlay overlayWithNumbers = new Overlay();
-                HashSet<Integer> checkedMolecules = new HashSet<>(); // Хэшсет для отслеживания номеров молекул
+                HashSet<Integer> checkedMolecules = new HashSet<>();
 
-                int counter = 1; // Счётчик для нумерации молекул
+                int counter = 1;
 
                 for (int x = 0; x < width; x++) {
                     for (int y = 0; y < height; y++) {
@@ -396,12 +342,12 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                             if (!checkedMolecules.contains(counter) && !isCluster(rt, centerX, centerY, minDistance)) {
                                 OvalRoi ovalRoi = new OvalRoi(centerX - 1, centerY - 1, 6, 6);
                                 TextRoi textRoi = new TextRoi(centerX, centerY, String.valueOf(counter));
-                                textRoi.setStrokeColor(new Color(0, 255, 0)); // Зеленый цвет для текстовой метки
+                                textRoi.setStrokeColor(new Color(0, 255, 0));
                                 overlayWithNumbers.add(textRoi);
 
                                 counter++;
 
-                                // Добавляем текущую молекулу в таблицу результатов
+
                                 rt.incrementCounter();
                                 rt.addValue("X", centerX);
                                 rt.addValue("Y", centerY);
@@ -415,7 +361,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
                     int moleculeNumber = (int) rt.getValue("Molecule Number", k);
                     if (moleculeNumber == 0) {
                         rt.deleteRow(k);
-                        k--; // Уменьшаем индекс, чтобы не пропустить следующую строку после удаления
+                        k--;
                     }
                 }
 
@@ -438,10 +384,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
             }
 
             //Molecules coordinates
-            //rt = ResultsTable.getResultsTable();
             int numRows = rt.size();
-            //double[] xCoords = rt.getColumnAsDoubles(0);
-            //double[] yCoords = rt.getColumnAsDoubles(1);
 
             if (xCoords != null) {
                 for (int n = 0; n < xCoords.length; n++) {
@@ -487,7 +430,7 @@ public class MainFrame extends JFrame implements ActionListener, WindowListener 
 
 
         FileSaver fs = new FileSaver(finalImage);
-        String finalImagePath = "final_images\\FinalImage" + processTime + ".png";
+        finalImagePath = "final_images\\FinalImage" + processTime + ".png";
         fs.saveAsPng(finalImagePath);
 
         System.out.println("Final image created: " + finalImagePath);

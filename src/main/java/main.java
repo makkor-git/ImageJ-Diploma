@@ -1,22 +1,6 @@
-import ij.IJ;
-import ij.ImageJ ;
-import ij.ImagePlus;
-import ij.measure.ResultsTable;
-import org.opencv.core.Core;
-import org.opencv.core.Mat;
-import org.opencv.imgcodecs.Imgcodecs;
-import org.opencv.videoio.VideoCapture;
-
-import javax.swing.*;
-import java.io.File;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-
 
 public class main {
     public static void main(String[] args) {
-        //System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
         nu.pattern.OpenCV.loadLocally();
         DatabaseHandler databaseHandler = new DatabaseHandler();
         DatabaseHandler.clearTable("videos");
@@ -25,6 +9,5 @@ public class main {
         DatabaseHandler.clearTable("molecules");
         DatabaseHandler.clearTable("final_images");
         MainFrame mainFrame = new MainFrame();
-        //ImageJ ij = new ImageJ();
     }
 }

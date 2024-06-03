@@ -1,11 +1,11 @@
 import java.sql.*;
 
 public class DatabaseHandler {
-    private static final String JDBC_URL = "jdbc:sqlserver://LAPTOP-L48QACSK\\SQLEXPRESS:61647;" +
+    private static final String JDBC_URL = "jdbc:sqlserver://MACHINE\\SQLEXPRESS:PORT;" +
             "databaseName=dSTORM_DB;" +
             "integratedSecurity=false;" +
             "trustServerCertificate=true;" +
-            "user=sa;password=changeme";
+            "user=user;password=password";
 
     private static Connection connection;
 
